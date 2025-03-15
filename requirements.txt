@@ -1,0 +1,6 @@
+modal
+datasets
+trl
+torch
+transformers
+
