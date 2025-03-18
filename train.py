@@ -1,3 +1,7 @@
+###
+#  modal run --detach train.py
+###
+
 from pathlib import PosixPath
 import modal
 
