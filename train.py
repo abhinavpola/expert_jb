@@ -58,7 +58,7 @@ def get_prompt_template(instruction, response):
     return PROMPT_TEMPLATE
 
 
-HF_MODEL_NAME = "unsloth/DeepSeek-R1-Distill-Llama-8B-unsloth-bnb-4bit"
+HF_MODEL_NAME = "unsloth/DeepSeek-R1-Distill-Qwen-14B-unsloth-bnb-4bit"
 
 
 @app.function(
@@ -150,7 +150,6 @@ def train():
             raise ValueError("prompts not found in kwargs")
         rewards = []
         for i in range(len(completions)):
-            print(f"Completion: {completions[i]}")
             print(f"\nProcessing completion {i+1}/{len(completions)}")
             # each completion is a jailbreak from deepseek
             jailbreak = (
@@ -167,6 +166,7 @@ def train():
                 "<think>" not in completions[i][0]["content"]
                 and "</think>" not in completions[i][0]["content"]
             ):
+                print(f"Completion {i+1} missing think tags")
                 rewards.append(0)
                 wandb.log(
                     {
