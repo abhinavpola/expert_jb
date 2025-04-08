@@ -1,0 +1,10 @@
+torch
+datasets
+trl
+openai
+wandb
+vllm
+bitsandbytes
+accelerate
+unsloth
+transformers 
