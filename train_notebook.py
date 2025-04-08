@@ -254,10 +254,6 @@ def __():
     config = GRPOConfig(
         logging_steps=10,
         use_vllm=True,
-        learning_rate=5e-6,
-        weight_decay=0.1,
-        warmup_ratio=0.1,
-        lr_scheduler_type="cosine",
         log_completions=True,
         report_to="wandb",
         max_prompt_length=None,
