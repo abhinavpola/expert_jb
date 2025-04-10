@@ -34,7 +34,7 @@ def __():
 @app.cell
 def __():
     # Set up paths
-    model_save_path = Path("models")
+    model_save_path = Path("grpo")
     model_save_path.mkdir(parents=True, exist_ok=True)
     return (model_save_path,)
 
