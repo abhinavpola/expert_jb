@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install required packages
-RUN pip install vllm unsloth datasets openai wandb
+RUN pip install marimo vllm unsloth datasets openai wandb
 
 # Set the working directory
 WORKDIR /app

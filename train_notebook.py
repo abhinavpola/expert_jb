@@ -69,7 +69,7 @@ def __():
 @app.cell
 def __():
     # Model configuration
-    HF_MODEL_NAME = "unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF"
+    HF_MODEL_NAME = "unsloth/Llama-4-Scout-17B-16E-Instruct-unsloth-dynamic-bnb-4bit"
     return (HF_MODEL_NAME,)
 
 
