@@ -1,7 +1,15 @@
-FROM drikster80/vllm-gh200-openai
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+# Install Python and pip
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install required packages
-RUN pip install unsloth datasets openai wandb
+RUN pip install vllm unsloth datasets openai wandb
 
 # Set the working directory
 WORKDIR /app
