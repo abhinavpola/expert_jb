@@ -7,6 +7,7 @@ app = marimo.App()
 
 @app.cell
 def __():
+    import unsloth
     from pathlib import Path
     import os
     from datasets import load_dataset
