@@ -1,0 +1,15 @@
+torch
+tf-keras
+numpy==1.26.4
+jinja2>=3.1.0
+transformers
+datasets
+peft
+huggingface
+trl
+accelerate
+bitsandbytes
+wandb
+openai
+python-dotenv
+tabulate
