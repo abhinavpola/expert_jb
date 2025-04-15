@@ -1,0 +1,27 @@
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+# Install Python and pip
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    git \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install required packages
+RUN pip install marimo vllm==0.8.2 unsloth datasets openai wandb peft transformers accelerate bitsandbytes
+
+RUN export VLLM_USE_V1=0
+
+# Set the working directory
+WORKDIR /app
+
+# Create the directory structure for the adapter
+RUN mkdir -p pliny_sft/models/qwen-jailbreak-finetuned
+
+# Copy the training script
+COPY train_sft_notebook.py .
+
+# Set the entrypoint to run the training script
+ENTRYPOINT ["python", "train_sft_notebook.py"]

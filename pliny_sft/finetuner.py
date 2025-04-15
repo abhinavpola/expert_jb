@@ -17,17 +17,15 @@ from peft import LoraConfig, get_peft_model # Removed PeftModel, prepare_model_f
 from trl import SFTTrainer
 
 # --- Configuration ---
-model_name = "Qwen/Qwen2.5-7B-Instruct"
+model_name = "Qwen/Qwen2.5-32B-Instruct"
 # Assumes CSV has columns: filename, header, content
 dataset_path = "jailbreaks.csv" # <--- PATH TO YOUR CSV FILE (filename,header,content)
 filename_column = "filename"             # <--- NAME OF THE FILENAME COLUMN (e.g., name.mkd)
 content_column = "content"               # <--- NAME OF THE CONTENT COLUMN (the desired jailbreak)
 # Note: 'header' column from CSV is not used in this script based on the request.
 output_dir = "models/qwen-jailbreak-finetuned"
-log_dir = f"{output_dir}/logs"
 
 os.makedirs(output_dir, exist_ok=True)
-os.makedirs(log_dir, exist_ok=True)
 
 wandb_project_name = "qwen-jailbreak-sft"
 

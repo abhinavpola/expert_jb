@@ -3,3 +3,5 @@
 __pycache__
 .history
 L1B3RT4S/
+models/
+wandb/
