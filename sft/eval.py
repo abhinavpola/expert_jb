@@ -12,7 +12,7 @@ import sys # Added for file logging
 
 # --- Configuration ---
 BASE_MODEL_NAME = "Qwen/Qwen2.5-7B-Instruct"
-ADAPTER_PATH = "models/qwen-jailbreak-finetuned" # Path to your LoRA adapter
+ADAPTER_PATH = "models/qwen7b-human-jailbreak-finetuned" # Path to your LoRA adapter
 DATASET_PATH = "eval.csv" # <--- Use the new CSV
 REQUEST_COLUMN = "request_description" # <--- Column with the harmful request text
 FILENAME_COLUMN = "filename" # Column with the original filename (used for context/logging)
@@ -48,7 +48,7 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(log_formatter)
 
 # File Handler
-file_handler = logging.FileHandler("evaluation_log.txt", mode='w') # 'w' to overwrite each run
+file_handler = logging.FileHandler("evaluation_log_human_jb.txt", mode='w') # 'w' to overwrite each run
 file_handler.setFormatter(log_formatter)
 
 # Get the root logger and add handlers
