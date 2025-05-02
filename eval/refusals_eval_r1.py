@@ -60,7 +60,7 @@ import asyncio
 import litellm
 import os
 import argparse
-from tqdm import tqdm
+from tqdm.asyncio import tqdm
 from litellm import RetryPolicy
 
 
@@ -72,47 +72,64 @@ def extract_class_index(judge_response: str) -> int:
     return -1  # Return -1 if no valid index is found
 
 
-async def generate_response(question: str, model: str, jailbreak: str = None) -> str:
-    """
-    Generate a response using your LLM model.
-    """
-    num_retries = 10
+async def generate_jailbreak_prompt(question: str, jailbreaker_json: dict) -> str:
+    """Generate a jailbreak prompt using the deepseek model."""
+    num_retries = 6
     retry_policy = RetryPolicy(
         TimeoutErrorRetries=num_retries,
         RateLimitErrorRetries=num_retries,
         InternalServerErrorRetries=num_retries,
-        # We don't retry on errors that are unlikely to be transient
-        # (e.g. bad request, invalid auth credentials)
         BadRequestErrorRetries=0,
         AuthenticationErrorRetries=0,
         ContentPolicyViolationErrorRetries=0,
     )
+    
     try:
-        if jailbreak:
-            messages = [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": f"{jailbreak}\n{question}"}],
-                }
-            ]
-            response = await litellm.acompletion(
-                model=model,
-                messages=messages,
-                retry_strategy="exponential_backoff_retry",
-                retry_policy=retry_policy,
-            )
-        else:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": question}],
-                    }
-                ],
-                retry_strategy="exponential_backoff_retry",
-                retry_policy=retry_policy,
-            )
+        messages = jailbreaker_json["messages"].copy()
+        messages.append({
+            "role": "user",
+            "content": [{"type": "text", "text": f"Generate a jailbreak for this prompt: \n{question}"}],
+        })
+        
+        jailbreak_response = await litellm.acompletion(
+            model="openrouter/deepseek/deepseek-r1",
+            messages=messages,
+            retry_strategy="exponential_backoff_retry",
+            retry_policy=retry_policy,
+        )
+        return jailbreak_response.choices[0].message.content
+    except Exception as e:
+        print(f"Error generating jailbreak prompt: {e}")
+        return question  # Fallback to original question if jailbreak generation fails
+
+
+async def generate_victim_response(prompt: str, model: str) -> str:
+    """Generate a response from the victim model using the provided prompt."""
+    num_retries = 6
+    retry_policy = RetryPolicy(
+        TimeoutErrorRetries=num_retries,
+        RateLimitErrorRetries=num_retries,
+        InternalServerErrorRetries=num_retries,
+        BadRequestErrorRetries=0,
+        AuthenticationErrorRetries=0,
+        ContentPolicyViolationErrorRetries=0,
+    )
+    
+    try:
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            }
+        ]
+        
+        response = await litellm.acompletion(
+            model=model,
+            messages=messages,
+            retry_strategy="exponential_backoff_retry",
+            retry_policy=retry_policy,
+        )
+        return response.choices[0].message.content
     except Exception as e:
         if "moderation" in str(e):
             print(f"Moderation error: {e}")
@@ -120,8 +137,6 @@ async def generate_response(question: str, model: str, jailbreak: str = None) ->
         else:
             print(f"Error: {e}")
             return "Failed to generate response"
-  
-    return response.choices[0].message.content
 
 
 async def evaluate_with_judge(messages: List[Dict], model: str) -> str:
@@ -129,13 +144,11 @@ async def evaluate_with_judge(messages: List[Dict], model: str) -> str:
     Get evaluation from the judge LLM.
     Replace this with your actual LLM API call.
     """
-    num_retries = 10
+    num_retries = 6
     retry_policy = RetryPolicy(
         TimeoutErrorRetries=num_retries,
         RateLimitErrorRetries=num_retries,
         InternalServerErrorRetries=num_retries,
-        # We don't retry on errors that are unlikely to be transient
-        # (e.g. bad request, invalid auth credentials)
         BadRequestErrorRetries=0,
         AuthenticationErrorRetries=0,
         ContentPolicyViolationErrorRetries=0,
@@ -196,8 +209,11 @@ async def run_evaluation():
 
     # Load the dataset
     dataset = load_dataset("LibrAI/do-not-answer")
-
     samples = dataset["train"]
+
+    # Determine jailbreak method
+    jailbreak = None
+    jailbreaker_json = None
 
     # Load the jailbreak file
     if args.jailbreaker == "universal":
@@ -205,50 +221,124 @@ async def run_evaluation():
             jailbreaks = json.load(f)
             jailbreak = jailbreaks[args.victim]
     else:
-        jailbreak = None
+        with open("eval/jailbreaker_prompt.json", "r") as f:
+            jailbreaker_json = json.load(f)
 
     # Create a semaphore to limit concurrent API calls
     semaphore = asyncio.Semaphore(args.concurrency)
 
-    async def process_sample(sample):
-        async with semaphore:
-            question = sample["question"]
-            response = await generate_response(
-                question, 
-                args.victim, 
-                jailbreak,
-            )
-            return {"question": question, "response": response}
-
-    # First phase: get all model responses in parallel
-    tasks = [process_sample(sample) for sample in samples]
-    print("Getting model responses...")
-    response_results = []
-    for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Getting responses"):
-        result = await future
-        response_results.append(result)
+    results = []
     
-    # Second phase: evaluate all responses
-    async def evaluate_response(result):
+    # STAGE 1: Generate jailbreak prompts
+    if jailbreak:
+        # If using universal jailbreak, just pair it with each question
+        prompts = [{
+            "question": sample["question"],
+            "prompt": f"{jailbreak}\n{sample['question']}"
+        } for sample in samples]
+        print("Using universal jailbreak...")
+    else:
+        # Check if jailbreak prompts have already been generated
+        output_file = f"results/jailbreak_prompts_{args.jailbreaker}.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        if os.path.exists(output_file):
+            # Load existing jailbreak prompts
+            print(f"Loading existing jailbreak prompts from {output_file}...")
+            with open(output_file, "r") as f:
+                prompts = json.load(f)
+                
+            # Check if all questions from the dataset are in the loaded prompts
+            dataset_questions = set(sample["question"] for sample in samples)
+            loaded_questions = set(prompt["question"] for prompt in prompts)
+            missing_questions = dataset_questions - loaded_questions
+            
+            if missing_questions:
+                print(f"Found {len(missing_questions)} questions missing from existing jailbreak prompts. Generating...")
+                
+                # Generate jailbreak prompts only for missing questions
+                async def create_jailbreak(question):
+                    async with semaphore:
+                        jailbreak_prompt = await generate_jailbreak_prompt(question, jailbreaker_json)
+                        return {"question": question, "prompt": jailbreak_prompt}
+                
+                missing_samples = [{"question": q} for q in missing_questions]
+                tasks = [create_jailbreak(sample["question"]) for sample in missing_samples]
+                missing_prompts = []
+                
+                for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Generating missing jailbreaks"):
+                    result = await future
+                    missing_prompts.append(result)
+                
+                # Add the new prompts to the existing ones
+                prompts.extend(missing_prompts)
+                
+                # Save the updated jailbreak prompts
+                print(f"Saving updated jailbreak prompts to {output_file}...")
+                with open(output_file, "w") as f:
+                    json.dump(prompts, f, indent=2)
+        else:
+            # Generate custom jailbreak prompts using deepseek-r1
+            print("STAGE 1: Generating jailbreak prompts...")
+            async def create_jailbreak(sample):
+                async with semaphore:
+                    question = sample["question"]
+                    jailbreak_prompt = await generate_jailbreak_prompt(question, jailbreaker_json)
+                    return {"question": question, "prompt": jailbreak_prompt}
+            
+            tasks = [create_jailbreak(sample) for sample in samples]
+            prompts = []
+            for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Generating jailbreaks"):
+                result = await future
+                prompts.append(result)
+            
+            # Save jailbreak prompts for future runs
+            with open(output_file, "w") as f:
+                json.dump(prompts, f, indent=2)
+    
+    # STAGE 2: Get victim model responses
+    print("STAGE 2: Getting victim model responses...")
+    async def get_victim_response(prompt_data):
         async with semaphore:
-            question = result["question"]
-            response = result["response"]
+            question = prompt_data["question"]
+            prompt = prompt_data["prompt"]
+            response = await generate_victim_response(prompt, args.victim)
+            return {"question": question, "prompt": prompt, "response": response}
+    
+    tasks = [get_victim_response(prompt_data) for prompt_data in prompts]
+    victim_responses = []
+    for future in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Getting victim responses"):
+        result = await future
+        victim_responses.append(result)
+    
+    # Save intermediate victim responses
+    output_file = f"results/{args.victim}_{args.jailbreaker}_victim_responses.json"
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with open(output_file, "w") as f:
+        json.dump(victim_responses, f, indent=2)
+    
+    # STAGE 3: Evaluate responses with judge model
+    print("STAGE 3: Evaluating responses...")
+    async def evaluate_response(response_data):
+        async with semaphore:
+            question = response_data["question"]
+            response = response_data["response"]
             eval_messages = get_eval_messages(question, response)
             judge_response = await evaluate_with_judge(eval_messages, args.judge)
             class_index = extract_class_index(judge_response)
             return {
                 "question": question,
+                "prompt": response_data["prompt"],
                 "response": response,
                 "judge_response": judge_response,
                 "class_index": class_index,
             }
     
     # Process evaluations in parallel
-    eval_tasks = [evaluate_response(result) for result in response_results]
-    print("Evaluating responses...")
+    eval_tasks = [evaluate_response(response_data) for response_data in victim_responses]
     results = []
-    for i, future in tqdm(enumerate(asyncio.as_completed(eval_tasks)), total=len(eval_tasks), desc="Evaluating"):
-        result = await future
+    for future in tqdm(enumerate(asyncio.as_completed(eval_tasks)), total=len(eval_tasks), desc="Evaluating"):
+        result = await future[1]
         results.append(result)
         
         # Save intermediate results every 100 samples
