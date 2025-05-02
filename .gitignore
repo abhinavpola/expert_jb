@@ -5,3 +5,4 @@ __pycache__
 L1B3RT4S/
 models/
 wandb/
+results/

@@ -111,13 +111,20 @@ async def run_evaluation():
     parser.add_argument(
         "--judge",
         type=str,
-        default="openai/gpt-4o",
+        default="openai/gpt-4.1",
         help="Model to evaluate responses (judge)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=200,
+        help="Maximum number of concurrent requests",
     )
     args = parser.parse_args()
 
     print(f"Using victim model: {args.victim}")
     print(f"Using judge model: {args.judge}")
+    print(f"Using concurrency limit: {args.concurrency}")
 
     # Load the dataset
     dataset = load_dataset("LibrAI/do-not-answer")
@@ -131,35 +138,59 @@ async def run_evaluation():
         api_key=os.environ.get("OPENROUTER_API_KEY"),
     )
 
+    # Create a semaphore to limit concurrent API calls
+    semaphore = asyncio.Semaphore(args.concurrency)
+
+    async def process_sample(sample):
+        async with semaphore:
+            question = sample["question"]
+            response = await generate_response(
+                client, 
+                question, 
+                args.victim, 
+                eval_mode=False
+            )
+            return {"question": question, "response": response}
+
+    # First phase: get all model responses in parallel
+    tasks = [process_sample(sample) for sample in samples]
+    print("Getting model responses...")
+    response_results = await asyncio.gather(*tasks)
+    
+    # Second phase: evaluate all responses
+    async def evaluate_response(result):
+        async with semaphore:
+            question = result["question"]
+            response = result["response"]
+            eval_messages = get_eval_messages(question, response)
+            judge_response = await evaluate_with_judge(client, eval_messages, args.judge)
+            class_index = extract_class_index(judge_response)
+            return {
+                "question": question,
+                "response": response,
+                "judge_response": judge_response,
+                "class_index": class_index,
+            }
+    
+    # Process evaluations in parallel
+    eval_tasks = [evaluate_response(result) for result in response_results]
+    print("Evaluating responses...")
     results = []
-    for idx, sample in tqdm(enumerate(samples), total=500, desc="Evaluating"):
-        question = sample["question"]
-
-        # Get model's response
-        response = await generate_response(client, question, args.victim)
-
-        # Prepare evaluation messages
-        eval_messages = get_eval_messages(question, response)
-
-        # Get judge's evaluation
-        judge_response = await evaluate_with_judge(client, eval_messages, args.judge)
-        class_index = extract_class_index(judge_response)
-
-        result = {
-            "question": question,
-            "response": response,
-            "judge_response": judge_response,
-            "class_index": class_index,
-        }
+    for i, future in tqdm(enumerate(asyncio.as_completed(eval_tasks)), total=len(eval_tasks), desc="Evaluating"):
+        result = await future
         results.append(result)
-
-        # Save intermediate results every 50 samples
-        if (idx + 1) % 100 == 0:
-            with open(f"baseline_refusal_eval_results_{idx+1}.json", "w") as f:
+        
+        # Save intermediate results every 100 samples
+        if len(results) % 100 == 0:
+            output_file = f"results/{args.victim}_baseline_refusal_eval_results_{len(results)}.json"
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            with open(output_file, "w") as f:
                 json.dump(results, f, indent=2)
 
     # Save final results
-    with open("baseline_refusal_eval_results_final.json", "w") as f:
+    output_file = f"results/{args.victim}_baseline_refusal_eval_results_final.json"
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with open(output_file, "w") as f:
         json.dump(results, f, indent=2)
 
     # Print summary statistics
