@@ -54,7 +54,7 @@ def get_eval_messages(question, victim_response):
 
 from datasets import load_dataset
 import json
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import re
 import asyncio
 import litellm
@@ -72,7 +72,9 @@ def extract_class_index(judge_response: str) -> int:
     return -1  # Return -1 if no valid index is found
 
 
-async def generate_jailbreak_prompt(question: str, jailbreaker_json: dict) -> str:
+async def generate_jailbreak_prompt(
+    question: str, jailbreaker_json: dict
+) -> Tuple[str, str]:
     """Generate a jailbreak prompt using the deepseek model."""
     num_retries = 6
     retry_policy = RetryPolicy(
@@ -107,10 +109,16 @@ async def generate_jailbreak_prompt(question: str, jailbreaker_json: dict) -> st
             reasoning_effort="high",
             temperature=0.5,
         )
-        return jailbreak_response.choices[0].message.content
+        return (
+            jailbreak_response.choices[0].message.content,
+            jailbreak_response.choices[0].message.reasoning_content,
+        )
     except Exception as e:
         print(f"Error generating jailbreak prompt: {e}")
-        return question  # Fallback to original question if jailbreak generation fails
+        return (
+            question,
+            "",
+        )  # Fallback to original question if jailbreak generation fails
 
 
 async def generate_victim_response(prompt: str, model: str) -> str:
@@ -279,23 +287,37 @@ async def run_evaluation():
                     ):
                         questions_with_invalid_prompts.add(prompt["question"])
 
+            # Also check for questions that have missing reasoning
+            questions_with_missing_reasoning = set()
+            for prompt in prompts:
+                if (
+                    "reasoning" not in prompt
+                    or not prompt["reasoning"]
+                    or prompt["reasoning"].strip() == ""
+                ):
+                    questions_with_missing_reasoning.add(prompt["question"])
+
             # Combine missing questions with questions that have invalid prompts
             all_questions_to_generate = missing_questions.union(
                 questions_with_invalid_prompts
-            )
+            ).union(questions_with_missing_reasoning)
 
             if all_questions_to_generate:
                 print(
-                    f"Found {len(missing_questions)} missing questions and {len(questions_with_invalid_prompts)} questions with empty/invalid prompts. Generating..."
+                    f"Found {len(missing_questions)} missing questions and {len(questions_with_invalid_prompts)} questions with empty/invalid prompts and {len(questions_with_missing_reasoning)} questions with missing reasoning. Generating..."
                 )
 
                 # Generate jailbreak prompts only for missing questions
                 async def create_jailbreak(question):
                     async with semaphore:
-                        jailbreak_prompt = await generate_jailbreak_prompt(
-                            question, jailbreaker_json
+                        jailbreak_prompt, jailbreak_prompt_reasoning = (
+                            await generate_jailbreak_prompt(question, jailbreaker_json)
                         )
-                        return {"question": question, "prompt": jailbreak_prompt}
+                        return {
+                            "question": question,
+                            "prompt": jailbreak_prompt,
+                            "reasoning": jailbreak_prompt_reasoning,
+                        }
 
                 missing_samples = [{"question": q} for q in all_questions_to_generate]
                 tasks = [
