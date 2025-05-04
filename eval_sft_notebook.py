@@ -67,6 +67,11 @@ def parse_args():
         action="store_true",
         help="Run baseline comparison with the base model using in-context learning",
     )
+    parser.add_argument(
+        "--load_jailbreaks",
+        action="store_true",
+        help="Load existing jailbreak prompts instead of generating new ones",
+    )
     return parser.parse_args()
 
 
@@ -458,45 +463,50 @@ async def run_evaluation(args):
     print("STAGE 1: Generating jailbreak prompts...")
 
     jailbreak_prompts = []
-    baseline_jailbreak_prompts = []
 
     prompt_prefill = None
     if baseline_enabled:
         with open("eval/jailbreaker_prompt.json", "r") as f:
             prompt_prefill = json.load(f)
 
-    # Generate jailbreaks with the either the LoRA fine-tuned model or the base model
-    for i, sample in enumerate(tqdm(samples, desc="Generating jailbreaks")):
-        question = sample[
-            "question"
-        ]  # Now each sample is a dict with question and category
-        category = sample["category"]
-
-        if baseline_enabled:
-            jailbreak, thinking = generate_jailbreak_with_context(
-                model, tokenizer, question, prompt_prefill
-            )
-        else:
-            jailbreak, thinking = generate_jailbreak(model, tokenizer, question)
-        jailbreak_prompts.append(
-            {
-                "question": question,
-                "prompt": jailbreak,
-                "reasoning": thinking,
-                "category": category,
-                "model": "base" if baseline_enabled else "lora",
-            }
-        )
-
-    # Save jailbreak prompts - LoRA model
+    # Determine the jailbreak file path based on baseline_enabled
     if baseline_enabled:
         jailbreaks_file = os.path.join(
             args.output_dir, "jailbreak_prompts_baseline.json"
         )
     else:
         jailbreaks_file = os.path.join(args.output_dir, "jailbreak_prompts_lora.json")
-    with open(jailbreaks_file, "w") as f:
-        json.dump(jailbreak_prompts, f, indent=2)
+
+    # Load existing jailbreak prompts if the flag is set and the file exists
+    if args.load_jailbreaks and os.path.exists(jailbreaks_file):
+        print(f"Loading existing jailbreak prompts from {jailbreaks_file}")
+        with open(jailbreaks_file, "r") as f:
+            jailbreak_prompts = json.load(f)
+    else:
+        # Generate jailbreaks with the either the LoRA fine-tuned model or the base model
+        for i, sample in enumerate(tqdm(samples, desc="Generating jailbreaks")):
+            question = sample["question"]
+            category = sample["category"]
+
+            if baseline_enabled:
+                jailbreak, thinking = generate_jailbreak_with_context(
+                    model, tokenizer, question, prompt_prefill["messages"]
+                )
+            else:
+                jailbreak, thinking = generate_jailbreak(model, tokenizer, question)
+            jailbreak_prompts.append(
+                {
+                    "question": question,
+                    "prompt": jailbreak,
+                    "reasoning": thinking,
+                    "category": category,
+                    "model": "base" if baseline_enabled else "lora",
+                }
+            )
+
+        # Save jailbreak prompts
+        with open(jailbreaks_file, "w") as f:
+            json.dump(jailbreak_prompts, f, indent=2)
 
     # Combine all jailbreak prompts for evaluation
     all_jailbreak_prompts = jailbreak_prompts.copy()
