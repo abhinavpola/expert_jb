@@ -123,20 +123,32 @@ def generate_jailbreak(model, tokenizer, question):
             top_k=20,
         )
     
-    # Get the generated text
+    # Get the generated text with special tokens preserved
     generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=False)
     
-    # Extract only the assistant's response
-    response = generated_text.split("<|assistant|>")[-1].strip()
+    # Extract the assistant's response
+    response = ""
+    thinking = ""
+    
+    # Try to find the assistant section with im_start/im_end tokens
+    assistant_pattern = r"<\|im_start\|>assistant\n(.*?)(?:<\|im_end\|>|$)"
+    match = re.search(assistant_pattern, generated_text, re.DOTALL)
+    if match:
+        response = match.group(1).strip()
+    else:
+        # Fallback to the previous approach if no im_start/im_end format found
+        assistant_parts = generated_text.split("<|assistant|>")
+        if len(assistant_parts) > 1:
+            response = assistant_parts[-1].strip()
     
     # Extract thinking if present
-    thinking = ""
     thinking_match = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
     if thinking_match:
         thinking = thinking_match.group(1).strip()
         # Remove the thinking part from the response
         response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
-    
+    print(f"Given prompt: {question}")
+    print(f"Generated jailbreak: {response}")
     return response, thinking
 
 # Get evaluation prompt template
