@@ -60,46 +60,17 @@ def load_benchmark(benchmark_path):
 
 # Load LoRA model for jailbreak generation
 def load_lora_model(model_path, max_seq_length=2048):
-    print(f"Loading base model first, then applying LoRA adapter from {model_path}")
+    print(f"Loading model directly from {model_path}")
     
-    # Step 1: Determine the base model from adapter_config.json
-    adapter_config_path = os.path.join(model_path, "adapter_config.json")
-    if not os.path.exists(adapter_config_path):
-        raise FileNotFoundError(f"adapter_config.json not found in {model_path}. Cannot determine base model.")
-        
-    with open(adapter_config_path, "r") as f:
-        adapter_config = json.load(f)
-        base_model_name = adapter_config.get("base_model_name_or_path")
-        if not base_model_name:
-            raise ValueError("Could not find 'base_model_name_or_path' in adapter_config.json")
-            
-    print(f"Identified base model: {base_model_name}")
-
-    # Step 2: Load the base model using Unsloth
+    # Directly load the model assuming it's a merged model or a base model path
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=base_model_name,
+        model_name=model_path,  # Use the provided path directly
         max_seq_length=max_seq_length,
         load_in_4bit=True,
-        # Add other necessary args like token if needed for the base model
+        # Add other necessary args like token if needed for the model
     )
     
-    print(f"Base model {base_model_name} loaded.")
-
-    # Step 3: Apply the LoRA adapter from the specified path
-    # Check if the adapter model file exists to provide a clearer error if not
-    adapter_model_path = os.path.join(model_path, "adapter_model.safetensors")
-    if not os.path.exists(adapter_model_path):
-         adapter_model_path = os.path.join(model_path, "adapter_model.bin") # Check for .bin as well
-         if not os.path.exists(adapter_model_path):
-             raise FileNotFoundError(f"Adapter model file (adapter_model.safetensors or .bin) not found in {model_path}")
-
-    print(f"Applying LoRA adapter from {model_path}...")
-    model = FastLanguageModel.get_peft_model(
-        model,
-        peft_model_id=model_path,  # Point to the directory containing the adapter files
-        adapter_name="lora" # You can give it a name
-    )
-    print("LoRA adapter applied successfully.")
+    print(f"Model {model_path} loaded successfully.")
     
     return model, tokenizer
 
