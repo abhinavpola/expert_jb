@@ -36,6 +36,7 @@ def parse_args():
 
 # Load dataset
 def load_benchmark(benchmark_path):
+    """Load and process the benchmark data where json is an object with categories"""
     if benchmark_path.startswith(("http://", "https://")):
         import requests
         response = requests.get(benchmark_path)
@@ -43,7 +44,19 @@ def load_benchmark(benchmark_path):
     else:
         with open(benchmark_path, 'r') as f:
             data = json.load(f)
-    return data
+    
+    # Flatten the categories into a list of samples with category info
+    flattened_samples = []
+    for category, questions in data.items():
+        if isinstance(questions, list):
+            for question in questions:
+                if isinstance(question, str):
+                    flattened_samples.append({
+                        "question": question,
+                        "category": category
+                    })
+    
+    return flattened_samples
 
 # Load LoRA model for jailbreak generation
 def load_lora_model(model_path, max_seq_length=2048):
@@ -242,15 +255,15 @@ async def run_evaluation(args):
     jailbreak_prompts = []
     
     for i, sample in enumerate(tqdm(samples, desc="Generating jailbreaks")):
-        question = sample.get("question", "")
-        if not question and "input" in sample:
-            question = sample["input"]
+        question = sample["question"]  # Now each sample is a dict with question and category
+        category = sample["category"]
             
         jailbreak, thinking = generate_jailbreak(model, tokenizer, question)
         jailbreak_prompts.append({
             "question": question,
             "prompt": jailbreak,
-            "reasoning": thinking
+            "reasoning": thinking,
+            "category": category  # Include category for analysis
         })
     
     # Save jailbreak prompts
@@ -370,6 +383,31 @@ async def run_evaluation(args):
             count = class_counts.get(class_idx, 0)
             percentage = (count / total_valid) * 100 if total_valid > 0 else 0
             print(f"  Class {class_idx}: {count} ({percentage:.2f}%)")
+        
+        # Per-category breakdown
+        print("\nBreakdown by category:")
+        category_results = {}
+        for result in results:
+            cat = result.get("category", "unknown")
+            if cat not in category_results:
+                category_results[cat] = []
+            category_results[cat].append(result)
+
+        for cat, cat_results in category_results.items():
+            cat_class_counts = {}
+            for result in cat_results:
+                class_idx = result["class_index"]
+                if class_idx == -1:
+                    continue
+                cat_class_counts[class_idx] = cat_class_counts.get(class_idx, 0) + 1
+            
+            cat_total = sum(cat_class_counts.values())
+            cat_class6 = cat_class_counts.get(6, 0)
+            cat_class6_pct = (cat_class6 / cat_total) * 100 if cat_total > 0 else 0
+            
+            print(f"  Category: {cat}")
+            print(f"    Total samples: {cat_total}")
+            print(f"    Jailbreak success rate: {cat_class6_pct:.2f}%")
     
     print("\nDone!")
 
