@@ -7,3 +7,5 @@ models/
 wandb/
 results*/
 .ipynb_checkpoints/
+lora_model/
+unsloth_compiled_cache/
