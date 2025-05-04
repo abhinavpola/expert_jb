@@ -60,12 +60,26 @@ def load_benchmark(benchmark_path):
 
 # Load LoRA model for jailbreak generation
 def load_lora_model(model_path, max_seq_length=2048):
-    print(f"Loading LoRA model from {model_path}")
+    print(f"Loading base model first, then applying LoRA from {model_path}")
+    
+    # First determine the base model from adapter_config.json
+    with open(os.path.join(model_path, "adapter_config.json"), "r") as f:
+        adapter_config = json.load(f)
+        base_model_name = adapter_config.get("base_model_name_or_path")
+    
+    # Load the base model
     model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_path,
+        model_name=base_model_name,
         max_seq_length=max_seq_length,
         load_in_4bit=True,
     )
+    
+    # Then load the LoRA adapter
+    model = FastLanguageModel.get_peft_model(
+        model,
+        peft_model_id=model_path,
+    )
+    
     return model, tokenizer
 
 # Generate jailbreak using local LoRA model
