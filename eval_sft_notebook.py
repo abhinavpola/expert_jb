@@ -95,7 +95,7 @@ def load_lora_model(model_path, max_seq_length=2048):
     print(f"Applying LoRA adapter from {model_path}...")
     model = FastLanguageModel.get_peft_model(
         model,
-        peft_model_id=model_path,  # Point to the directory containing the adapter files
+        model_path,  # Pass the path directly instead of using peft_model_id
         adapter_name="lora" # You can give it a name
     )
     print("LoRA adapter applied successfully.")
