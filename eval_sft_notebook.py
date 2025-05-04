@@ -12,6 +12,7 @@ from unsloth import FastLanguageModel
 from transformers import TextStreamer
 import litellm
 from litellm import RetryPolicy
+from peft import PeftModel
 
 # Set up argument parsing
 def parse_args():
@@ -92,13 +93,8 @@ def load_lora_model(model_path, max_seq_length=2048):
     if not os.path.exists(adapter_model_path_safetensors) and not os.path.exists(adapter_model_path_bin):
          raise FileNotFoundError(f"Adapter model file (adapter_model.safetensors or .bin) not found in {model_path}")
 
-    print(f"Applying LoRA adapter from {model_path}...")
-    model = FastLanguageModel.get_peft_model(
-        model,
-        model_path,  # Pass the path directly instead of using peft_model_id
-        adapter_name="lora" # You can give it a name
-    )
-    print("LoRA adapter applied successfully.")
+    print(f"Applying LoRA adapter from {model_path} using PeftModel...")
+    model = PeftModel.from_pretrained(model, model_path)
     
     return model, tokenizer
 
