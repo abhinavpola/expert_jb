@@ -124,7 +124,7 @@ def generate_jailbreak(model, tokenizer, question):
         )
     
     # Get the generated text
-    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=False)
     
     # Extract only the assistant's response
     response = generated_text.split("<|assistant|>")[-1].strip()
